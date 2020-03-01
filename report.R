@@ -6,7 +6,7 @@ if(!require(kableExtra)) install.packages("kableExtra", repos = "http://cran.us.
 #
 # Create database connection
 #
-pwd <- 'Enter the password here'
+pwd <- 'Insert password'
 mydb <- dbConnect(MySQL(), user='root', password=pwd, dbname='prosper', host='localhost')
 #
 #Retrieve transactions pertaining to particular institution

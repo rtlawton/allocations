@@ -2,20 +2,26 @@ if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-
 if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
 if(!require(RMySQL)) install.packages("RMySQL", repos = "http://cran.us.r-project.org")
 if(!require(corrr)) install.packages("corrr", repos = "http://cran.us.r-project.org")
-#default institution
-#
-protocol <- "BA" 
-#
-# Or read institution from Rscript command line
-#
-args = commandArgs(trailingOnly=TRUE) 
-if (length(args) > 0) protocol <- args[1]
 #
 # Create database connection
 #
 pwd <- 'Insert password here'
 mydb <- dbConnect(MySQL(), user='root', password=pwd, dbname='prosper', host='localhost')
 #
+#verify institution
+#
+args <- commandArgs(trailingOnly = T)
+if (length(args) == 1) {
+  protocol <- args[1]
+  rs <- dbSendQuery(mydb, "SHOW TABLES LIKE 'Model_%'")
+  plist <- dbFetch(rs, n=-1)
+  if (!(paste("Model_", protocol, sep="") %in% plist[,1])) {
+    stop("No machine learning for this protocol", call.=F)
+  }
+} else {
+  stop("Illegal call", call.=F)
+}
+
 #Retrieve transactions pertaining to particular institution
 #Select transactions after point at which statements were first imported
 #Discard transactions with internal administrative function or involving cash
@@ -29,15 +35,6 @@ qdata <- dbFetch(rs, n=-1)
 qdata <- qdata %>% mutate(id = as.integer(id), ac = as.factor(ac))
 qdata <- qdata %>% mutate(day=strtoi(substr(dt,9,10),10))
 qdata <- qdata %>% select(-dt)
-#
-# Data exploration
-#
-qnrec <- nrow(qdata)
-#qdata %>% ggplot(aes(x=ac)) + geom_bar() + scale_y_log10()
-#remove ac with less than 10 instances
-#qd2 <- qdata %>% group_by(ac) %>% filter(n() >=10) %>% ungroup()
-#qd2 %>% ggplot(aes(x=ac)) + geom_bar() + scale_y_log10()
-#qd2 %>% ggplot(aes(x=ac, y=ac_amount)) + geom_boxplot()
 #
 # Start training
 #
@@ -298,37 +295,11 @@ pred <- mapply(test_pred, test_set$ac_amount, test_set$comm, test_set$day)
 prop_correct <- mean(pred == test_set$ac)
 prop_unguessed <- mean(pred == "0")
 prop_wrong <- mean(pred != "0" & pred != test_set$ac)
-#
-# Side by side comparison out outcomes for viewing
-#
-scan_table <- data.frame(actual=as.character(test_set$ac), pred=pred, comm=test_set$comm, amount=test_set$ac_amount, stringsAsFactors=F)
-#
-# Load manual system for comaprison
-#
-SQL <- "select matchstring, ac from ccmatch"
-rs <- dbSendQuery(mydb, SQL)
-qdata <- dbFetch(rs, n=-1)
-qdata <- qdata %>%mutate(ac=as.character(ac))
-man_test_pred <- function(comm) {
-  comm <- toupper(comm)
-  f <- which(sapply(qdata$matchstring, function(q) {
-    grepl(q, comm, fixed=T)
-  }))
-  ifelse(length(f) > 0 ,qdata[f[[1]],"ac"],"0")
-}
-pred_man <- sapply(test_set$comm,man_test_pred)
-prop_correct_man <- mean(pred_man == test_set$ac)
-prop_unguessed_man <- mean(pred_man == "0")
-prop_wrong_man <- mean(pred_man != "0" & pred_man != test_set$ac)
-
-
-
-
-
-
-
-
-
-
-
-
+sql <- paste("UPDATE TestResults set correct=", prop_correct, 
+             ", wrong=", prop_wrong,
+             ", unguessed=", prop_unguessed,
+             ", updated='", format(Sys.Date(), "%Y-%m-%d"),
+             "' WHERE protocol= '" , protocol, "'",
+             sep="")
+stmt<-dbSendQuery(mydb,sql)
+stop("Success!")
